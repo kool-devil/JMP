@@ -24,7 +24,7 @@ export async function generateMetadata() {
     metadataBase: siteOrigin(settings, process.env) ? new URL(siteOrigin(settings, process.env)) : undefined,
     title: settings.siteName || 'J M Pabari & Associates',
     description: settings.tagline || 'Chartered Accountants website with admin CMS.',
-    icons: settings.favicon ? { icon: [{ url: settings.favicon }] } : undefined
+    icons: {icon: settings.favicon || '/favicon.ico'}
   };
 }
 

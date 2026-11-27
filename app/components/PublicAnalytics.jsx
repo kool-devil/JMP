@@ -1,8 +1,6 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import {usePathname} from 'next/navigation';
-import {trackEvent} from '../lib/analytics.mjs';
-import {clearVisitorContext,sendVisit} from '../lib/visitor-browser.mjs';
 const CONSENT_KEY='jmp-analytics-consent-v2';
 export default function PublicAnalytics({measurementId='',enabled=false,visitorEnabled=true}) {
   const pathname=usePathname()||'/';
@@ -22,8 +20,14 @@ export default function PublicAnalytics({measurementId='',enabled=false,visitorE
     window.__jmpAnalyticsReady=allowed&&googleActive&&loaded;
     if(measurementId)window[`ga-disable-${measurementId}`]=!allowed||!googleActive;
     window.gtag?.('consent','update',{analytics_storage:allowed&&googleActive?'granted':'denied'});
-    if(!allowed){lastView.current='';if(choice==='declined')clearVisitorContext();}
-    return()=>{window.__jmpVisitTrackingReady=false;window.__jmpAnalyticsReady=false;};
+    let cancelled=false;
+    if(!allowed){
+      lastView.current='';
+      if(choice==='declined') import('../lib/visitor-browser.mjs').then(({clearVisitorContext})=>{
+        if(!cancelled) clearVisitorContext();
+      }).catch(()=>{});
+    }
+    return()=>{cancelled=true;window.__jmpVisitTrackingReady=false;window.__jmpAnalyticsReady=false;};
   },[active,choice,visitorEnabled,googleActive,loaded,measurementId]);
   useEffect(()=>{
     if(!active||choice!=='allowed'||!googleActive)return;
@@ -37,13 +41,20 @@ export default function PublicAnalytics({measurementId='',enabled=false,visitorE
   },[active,choice,googleActive,measurementId]);
   useEffect(()=>{
     if(!active||choice!=='allowed')return;
-    if(visitorEnabled&&lastView.current!==pathname){sendVisit('page_view');lastView.current=pathname;}
+    let cancelled=false;
+    if(visitorEnabled&&lastView.current!==pathname) import('../lib/visitor-browser.mjs').then(({sendVisit})=>{
+      if(cancelled)return;
+      sendVisit('page_view');lastView.current=pathname;
+    }).catch(()=>{});
+    const report=(name,linkType)=>import('../lib/analytics.mjs').then(({trackEvent})=>{
+      if(!cancelled)trackEvent(name,{link_type:linkType});
+    }).catch(()=>{});
     const click=event=>{const link=event.target.closest?.('a');if(!link)return;const href=link.getAttribute('href')||'';
-      if(href.startsWith('tel:'))trackEvent('telephone_click',{link_type:'phone'});
-      else if(href.startsWith('mailto:'))trackEvent('email_click',{link_type:'email'});
-      else if(link.hasAttribute('download')||href.startsWith('/downloads/'))trackEvent('resource_download',{link_type:'resource'});
-      else if(href.split('?')[0]==='/contact'&&link.matches('.btn,.text-cta,.nav-cta'))trackEvent('consultation_click',{link_type:'enquiry'});
-    };document.addEventListener('click',click);return()=>document.removeEventListener('click',click);
+      if(href.startsWith('tel:'))report('telephone_click','phone');
+      else if(href.startsWith('mailto:'))report('email_click','email');
+      else if(link.hasAttribute('download')||href.startsWith('/downloads/'))report('resource_download','resource');
+      else if(href.split(/[?#]/)[0]==='/contact'&&link.matches('.btn,.text-cta,.nav-cta,.mobile-enquiry'))report('consultation_click','enquiry');
+    };document.addEventListener('click',click);return()=>{cancelled=true;document.removeEventListener('click',click);};
   },[active,choice,visitorEnabled,pathname]);
   useEffect(()=>{if(active&&choice==='allowed'&&googleActive&&loaded){window.__jmpAnalyticsReady=true;window.gtag?.('event','page_view',{page_path:pathname,page_location:window.location.origin+pathname,page_title:document.title});}},[active,choice,googleActive,loaded,pathname]);
   function choose(value){try{localStorage.setItem(CONSENT_KEY,value);}catch{}setChoice(value);}

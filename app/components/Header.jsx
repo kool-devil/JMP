@@ -53,8 +53,9 @@ export default function Header({ settings = {}, menus, preview = false }) {
       </div></div>
       <div className="container header-inner">
         <Link className="logo" href="/" aria-label={`${settings.siteName || 'J M Pabari & Associates'} home`} onClick={close}>
-          <img src={settings.logo || '/assets/img/jm-logo.webp'} alt={settings.siteName || 'J M Pabari & Associates'} width="290" height="60"/>
+          <img src={!settings.logo || settings.logo === '/assets/img/jm-logo.png' ? '/assets/img/jm-logo.webp' : settings.logo} alt={settings.siteName || 'J M Pabari & Associates'} width="290" height="60"/>
         </Link>
+        <Link className="mobile-enquiry" href="/contact#enquiry-form" onClick={close}>Enquire</Link>
         <button ref={toggle} type="button" className={`menu-toggle ${open ? 'is-open' : ''}`} aria-label={open ? 'Close navigation' : 'Open navigation'} aria-controls="primary-navigation" aria-expanded={open} onClick={() => { setOpen(!open); setExpanded(null); }}>
           <Icon name={open ? 'close' : 'menu'}/>
         </button>

@@ -7,7 +7,7 @@ import {PAGE_SERVICES} from '../lib/service-links.mjs';
 import {validateEnquiry} from '../lib/crm.mjs';
 import TurnstileWidget from './TurnstileWidget';
 const fallbackServices=['Accounting / Bookkeeping','GST Compliance','Income Tax','Audit & Assurance','Business Advisory','Other'];
-export default function ContactForm({services=fallbackServices,heading='Send an Enquiry',successMessage='Thank you. Your enquiry has been submitted.',preview=false}){
+export default function ContactForm({services=fallbackServices,heading='Send an Enquiry',successMessage='Thank you. Your enquiry has been submitted.',responseExpectation='',preview=false}){
  const formId=useId(),busy=useRef(false),request=useRef({key:'',signature:''}),summary=useRef(null);
  const [status,setStatus]=useState(''),[errors,setErrors]=useState({}),[loading,setLoading]=useState(false),[receipt,setReceipt]=useState('');
  const [turnstileToken,setTurnstileToken]=useState(''),[turnstileReset,setTurnstileReset]=useState(0),[selectedService,setSelectedService]=useState(''),[requestedService,setRequestedService]=useState('');
@@ -34,7 +34,7 @@ export default function ContactForm({services=fallbackServices,heading='Send an 
  }
  if(receipt)return <div className="contact-form enquiry-success" role="status"><span className="receipt-check" aria-hidden="true">✓</span><h3>Enquiry received.</h3><p>{status}</p>{receipt!=='received'&&<p className="receipt-reference">Your reference: <strong>{receipt}</strong></p>}<p>The team will review your request and contact you using the details provided.</p><Link className="btn" href="/thank-you">What happens next <Icon name="arrow" size={18}/></Link></div>;
  return <form id="enquiry-form" className="contact-form" onSubmit={submit} aria-busy={loading} noValidate>
-  {heading&&<h3>{heading}</h3>}<p className="contact-form-intro">Share a few details. Fields marked * are required.</p>
+  {heading&&<h3>{heading}</h3>}<p className="contact-form-intro">Share a few details. Fields marked * are required.</p>{responseExpectation && <p className="contact-form-intro">{responseExpectation}</p>}
   {status&&<div ref={summary} tabIndex={-1} className="form-status error" role="alert">{status}{Object.keys(errors).length>0&&<ul>{Object.entries(errors).map(([name,message])=><li key={name}><a href={'#'+formId+'-'+name}>{message}</a></li>)}</ul>}</div>}
   <div aria-hidden="true" style={{position:'absolute',left:'-10000px',width:1,height:1,overflow:'hidden'}}><label>Website<input name="website" tabIndex={-1} autoComplete="off"/></label></div>
   <fieldset disabled={loading} className="form-fields">

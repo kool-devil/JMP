@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {isPublicPage,publicationLabel,normalizePublication,isEnquiryOverdue} from '../app/lib/publishing.mjs';
-import {siteOrigin,pageMetadata,structuredData,safeJson} from '../app/lib/seo.mjs';
+import {siteOrigin,pageMetadata,structuredData,safeJson,isIndexablePage} from '../app/lib/seo.mjs';
 import {selectPosts,blogHref} from '../app/lib/blog.mjs';
+import {bookingAvailable} from '../app/lib/calendar-config.mjs';
+import {withStarterArticles} from '../app/lib/starter-articles.mjs';
 import {contentPlan,applyContentPlan} from '../app/lib/content-upgrade.mjs';
 import {enquiryMailPlans,sendEnquiryEmails} from '../app/lib/enquiry-mail.mjs';
 const now=Date.parse('2026-10-27T12:00:00Z');
@@ -65,4 +67,28 @@ test('email is disabled without credentials and delivery failures are contained'
  const disabled=await sendEnquiryEmails(enquiry,settings,{},async()=>{calls++;});assert.equal(disabled.enabled,false);assert.equal(calls,0);
  const result=await sendEnquiryEmails(enquiry,settings,environment,async()=>({ok:false}));assert.equal(result.failed,2);assert.equal(result.sent,0);
  const ok=await sendEnquiryEmails(enquiry,settings,environment,async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');assert.ok(options.headers['Idempotency-Key']);return {ok:true};});assert.equal(ok.sent,2);
+});
+
+test('booking is advertised only when a configured calendar is enabled', () => {
+  const settings = {bookingEnabled:true, bookingCalendarId:'test-calendar'};
+  const environment = {GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON: JSON.stringify({client_email:'calendar@example.test', private_key:'test'})};
+  assert.equal(bookingAvailable(settings, environment), true);
+  assert.equal(bookingAvailable({...settings, bookingEnabled:false}, environment), false);
+  assert.equal(bookingAvailable({...settings, bookingCalendarId:' '}, environment), false);
+  assert.equal(bookingAvailable(settings, {}), false);
+});
+test('enquiry receipts stay out of search indexes even where the CMS omits the flag', () => {
+  const receipt = {slug:'thank-you', noIndex:false};
+  assert.equal(isIndexablePage(receipt), false);
+  assert.equal(isIndexablePage({slug:'contact'}), true);
+  assert.deepEqual(pageMetadata(receipt).robots, {index:false, follow:false});
+});
+test('an existing CMS draft takes precedence over bundled articles', () => {
+  const initial = withStarterArticles([]);
+  assert.equal(initial.length, 2);
+  assert.ok(initial.every(page => isPublicPage(page)));
+  const draft = {slug:initial[0].slug, status:'draft'};
+  const combined = withStarterArticles([draft]);
+  assert.equal(combined.filter(page => page.slug === draft.slug).length, 1);
+  assert.ok(!combined.filter(page => isPublicPage(page)).some(page => page.slug === draft.slug));
 });

@@ -43,10 +43,12 @@ function SectionHeading({ section }) {
 }
 
 function ContactDetails({ settings }) {
+  const directions = settings.address && `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.address)}`;
   return <div className="contact-details">
     {settings.phone && <a href={`tel:${settings.phone.replace(/[^+\d]/g, '')}`}><span className="contact-icon"><Icon name="phone" size={20}/></span><span><small>Call our team</small><strong>{settings.phone}</strong></span><Icon name="diagonal" size={18}/></a>}
     {settings.email && <a href={`mailto:${settings.email}`}><span className="contact-icon"><Icon name="mail" size={20}/></span><span><small>Email us</small><strong>{settings.email}</strong></span><Icon name="diagonal" size={18}/></a>}
-    {settings.address && <div><span className="contact-icon"><Icon name="pin" size={20}/></span><span><small>Our office</small><strong>{settings.address}</strong></span></div>}
+    {directions && <a href={directions}><span className="contact-icon"><Icon name="pin" size={20}/></span><span><small>Get directions to our office</small><strong>{settings.address}</strong></span><Icon name="diagonal" size={18}/></a>}
+    {settings.officeHours && <div><span className="contact-icon"><Icon name="clock" size={20}/></span><span><small>Office hours</small><strong>{settings.officeHours}</strong></span></div>}
   </div>;
 }
 
@@ -76,7 +78,7 @@ function Section({ section, settings, preview = false, service = '' }) {
     return <section className="section section-cta"><div className="container cta-band"><div><span className="eyebrow">Let’s move forward</span><h2>{section.title}</h2><FormattedText text={section.text}/></div>{section.buttonText && <Link className="btn" href={serviceContactUrl(section.buttonUrl || '#',service)}>{section.buttonText}</Link>}</div></section>;
   }
   if (section.type === 'contact') {
-    return <section className="section"><div className="container contact-wrap"><div><SectionHeading section={{ ...section, kicker: section.kicker || 'Start a conversation', title: section.title || 'How can we help you?' }}/><FormattedText text={section.text || 'Tell us a little about your business and what you need. Our team will help you with the next step.'} className="lead"/><ContactDetails settings={settings}/></div><ContactForm preview={preview} services={settings.formServices} heading={settings.formHeading} successMessage={settings.formSuccessMessage}/></div></section>;
+    return <section className="section"><div className="container contact-wrap"><div><SectionHeading section={{ ...section, kicker: section.kicker || 'Start a conversation', title: section.title || 'How can we help you?' }}/><FormattedText text={section.text || 'Tell us a little about your business and what you need. Our team will help you with the next step.'} className="lead"/><ContactDetails settings={settings}/></div><ContactForm preview={preview} services={settings.formServices} heading={settings.formHeading} successMessage={settings.formSuccessMessage} responseExpectation={settings.enquiryResponseExpectation}/></div></section>;
   }
   return null;
 }

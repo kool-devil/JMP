@@ -3,6 +3,7 @@ export function siteOrigin(settings = {}, environment = {}) {
   try { const url = new URL(raw); return ['http:','https:'].includes(url.protocol) && !url.username && !url.password ? url.origin : ''; } catch { return ''; }
 }
 export const pagePath = page => page.slug === 'home' ? '/' : `/${page.slug}`;
+export const isIndexablePage = page => page.slug !== 'thank-you' && !page.noIndex;
 export function pageMetadata(page, settings = {}, environment = {}) {
   if (!page) return {};
   const base = siteOrigin(settings, environment), path = pagePath(page);
@@ -13,7 +14,7 @@ export function pageMetadata(page, settings = {}, environment = {}) {
   return {
     title, description,
     alternates: canonical ? {canonical} : undefined,
-    robots: page.noIndex ? {index:false, follow:false} : undefined,
+    robots: isIndexablePage(page) ? undefined : {index:false, follow:false},
     openGraph: { title:page.ogTitle || title, description:page.ogDescription || description, url:canonical || undefined, type:page.template === 'blog' ? 'article' : 'website', images:image ? [image] : undefined },
     twitter: {card: image ? 'summary_large_image' : 'summary', title:page.ogTitle || title, description:page.ogDescription || description, images:image ? [image] : undefined}
   };

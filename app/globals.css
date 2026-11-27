@@ -100,6 +100,7 @@ p { margin: 0 0 18px; }
 .utility-divider { color: #8eabc2; margin: 0 15px; }
 .header-inner { display: flex; height: 90px; align-items: center; justify-content: space-between; gap: 20px; }
 .logo { display: block; flex: 0 0 auto; }
+.mobile-enquiry { display: none; }
 .logo img { width: 242px; max-height: 62px; height: auto; object-fit: contain; }
 .nav { display: flex; align-items: center; gap: 14px; }
 .nav-link { display: inline-flex; gap: 14px; align-items: center; min-height: 44px; padding: 8px 0; color: var(--ink); font-size: 12px; font-weight: 500; white-space: nowrap; position: relative; }
@@ -277,6 +278,8 @@ textarea { min-height: 120px; resize: vertical; }
 @media (max-width: 1100px) {
   .header-inner { height: 78px; }
   .menu-toggle { display: flex; }
+  .mobile-enquiry { display: inline-flex; align-items: center; justify-content: center; margin-left: auto; padding-inline: 12px; min-height: 44px; border-radius: 4px; background: var(--primary); color: var(--on-primary); font-size: 13px; font-weight: 600; }
+  .mobile-enquiry:hover { color: var(--on-primary); text-decoration: underline; }
   .logo img { width: 240px; }
   .nav { position: absolute; top: 100%; left: 0; right: 0; display: none; max-height: calc(100dvh - 112px); overflow-y: auto; flex-direction: column; align-items: stretch; padding: 14px 32px 24px; gap: 0; border-bottom: 1px solid var(--border); box-shadow: 0 18px 30px rgb(16 43 67 / 10%); background: var(--surface-color); }
   .nav.open { display: flex; }
@@ -333,7 +336,9 @@ textarea { min-height: 120px; resize: vertical; }
   .utility-divider { margin-inline: 9px; }
   .header-utility .container > div { display: none; }
   .header-inner { height: 74px; gap: 12px; }
-  .logo img { width: min(235px, 66vw); }
+  .header-inner .logo { flex: 0 1 auto; min-width: 0; }
+  .header-inner .menu-toggle { flex: 0 0 44px; }
+  .logo img { width: min(235px, 100%); }
   .nav { padding-inline: 20px; max-height: calc(100dvh - 103px); }
   .hero-grid { padding-block: 43px 48px; gap: 36px; }
   .eyebrow { font-size: 9px; letter-spacing: .14em; margin-bottom: 20px; }

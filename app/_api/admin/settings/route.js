@@ -51,6 +51,12 @@ export async function PUT(request) {
     }
 
     if (requestedSettings.siteUrl && (!siteOrigin(requestedSettings) || !/^https?:\/\/[^\s/?#]+(?::[0-9]+)?\/?$/.test(requestedSettings.siteUrl))) return NextResponse.json({message:'Site URL must be an absolute website origin, such as https://example.com.'},{status:400});
+    for (const [key, label] of [['officeHours','Public office hours'], ['enquiryResponseExpectation','Public enquiry response time']]) {
+      const value = requestedSettings[key];
+      if (value == null) continue;
+      if (typeof value !== 'string' || value.length > 160) return NextResponse.json({message:`${label} must be 160 characters or fewer.`},{status:400});
+      requestedSettings[key] = value.trim();
+    }
     for (const key of ['analyticsEnabled','enquiryNotificationsEnabled','enquiryAcknowledgementEnabled']) if (requestedSettings[key] != null && typeof requestedSettings[key] !== 'boolean') return NextResponse.json({message:`Invalid on/off value for ${key}.`},{status:400});
     if (requestedSettings.analyticsEnabled && !/^G-[A-Z0-9]{4,20}$/.test(requestedSettings.gaMeasurementId || '')) return NextResponse.json({message:'Add a valid GA4 measurement ID before enabling analytics.'},{status:400});
     if (requestedSettings.gaMeasurementId && !/^G-[A-Z0-9]{4,20}$/.test(requestedSettings.gaMeasurementId)) return NextResponse.json({message:'Enter a valid GA4 measurement ID (G-...).'}, {status:400});

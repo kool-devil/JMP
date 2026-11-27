@@ -3,7 +3,7 @@ const plain = value => String(value || '').replace(/<[^>]*>/g, ' ').replace(/[*_
 export function siteSearchEntries(pages = [], now = Date.now()) {
  const entries = [];
  for (const page of pages) {
-  if (!isPublicPage(page, now) || !/^[a-z0-9-]+$/.test(page.slug || '') || ['client-portal', 'admin', 'waitlist', 'search', 'reset-password'].includes(page.slug)) continue;
+  if (!isPublicPage(page, now) || !/^[a-z0-9-]+$/.test(page.slug || '') || ['client-portal', 'admin', 'waitlist', 'search', 'reset-password', 'thank-you'].includes(page.slug)) continue;
   const href = page.slug === 'home' ? '/' : '/' + page.slug;
   entries.push({id: 'page-' + page.id, title: plain(page.title), text: plain(page.metaDescription || page.heroText).slice(0, 350), href, kind: page.template === 'blog' ? 'Article' : page.template === 'service' ? 'Service' : 'Page'});
   for (const [i, section] of (page.sections || []).entries()) if (section.type === 'faq') for (const [j, item] of (section.items || []).entries()) if (item.question) entries.push({id: `faq-${page.id}-${i}-${j}`, title: plain(item.question), text: plain(item.answer).slice(0, 500), href, kind: 'FAQ'});
