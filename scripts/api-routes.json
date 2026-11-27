@@ -199,6 +199,7 @@
     "path": "/admin/pages/:id",
     "file": "admin/pages/[id]/route.js",
     "methods": [
+      "GET",
       "PUT",
       "DELETE"
     ],

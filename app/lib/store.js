@@ -22,12 +22,12 @@ async function getSeed() { return normalizeData(JSON.parse(await fs.readFile(see
 async function readLocal() { try { return normalizeData(JSON.parse(await fs.readFile(localFile, 'utf8'))); } catch { return getSeed(); } }
 async function writeLocal(data) { await fs.mkdir(path.dirname(localFile), { recursive: true }); await fs.writeFile(localFile, JSON.stringify(normalizeData(data), null, 2), 'utf8'); }
 
-async function ensureSeed() {
+const ensureSeed = cache(async () => {
   const db = supabaseAdmin();
   if (!db) return;
-  const { count, error } = await db.from('cms_pages').select('*', { count: 'exact', head: true });
+  const { data, error } = await db.from('cms_pages').select('id').limit(1);
   if (error) throw error;
-  if ((count || 0) > 0) return;
+  if (data?.length) return;
   const seed = await getSeed();
   const pageRows = seed.pages.map((page) => ({ id: Number(page.id), slug: page.slug, status: page.status || 'draft', order_num: Number(page.order || 99), data: page, created_at: page.createdAt || new Date().toISOString(), updated_at: page.updatedAt || new Date().toISOString() }));
   const enquiryRows = seed.enquiries.map((item) => ({ id: Number(item.id), data: item, created_at: item.createdAt || new Date().toISOString() }));
@@ -39,6 +39,50 @@ async function ensureSeed() {
     enquiryRows.length ? db.from('cms_enquiries').upsert(enquiryRows) : Promise.resolve(),
     mediaRows.length ? db.from('cms_media').upsert(mediaRows) : Promise.resolve()
   ]);
+});
+
+const pageColumns = 'id,data,slug,status,order_num,created_at,updated_at';
+const pageSummaryColumns = [
+  'id', 'slug', 'status', 'order_num', 'created_at', 'updated_at',
+  ...['title', 'template', 'publishAt', 'noIndex', 'seoTitle', 'metaDescription', 'heroText',
+    'heroImage', 'heroImageAlt', 'heroFocalPoint', 'blogAuthor', 'blogCategory', 'blogDate', 'blogTags',
+    'showInMenu', 'menuLabel', 'updatedBy'].map(key => `${key}:data->${key}`)
+].join(',');
+
+function pageFromRow({data, id, slug, status, order_num, created_at, updated_at, ...fields}) {
+  return {...fields, ...data, id:Number(id), slug, status, order:order_num, createdAt:data?.createdAt || created_at, updatedAt:updated_at};
+}
+
+async function readPages({columns = pageColumns, key, value, slugs} = {}) {
+  const db = supabaseAdmin();
+  if (!db) {
+    const store = isProduction() ? await getSeed() : await readLocal();
+    if (key) return store.pages.find(page => page[key] === value) || null;
+    return slugs ? store.pages.filter(page => slugs.includes(page.slug)) : store.pages;
+  }
+  await ensureSeed();
+  if (key) {
+    const {data,error} = await db.from('cms_pages').select(columns).eq(key,value).maybeSingle();
+    if (error) throw error;
+    return data ? pageFromRow(data) : null;
+  }
+  if (slugs) {
+    const {data,error} = await db.from('cms_pages').select(columns).in('slug',slugs);
+    if (error) throw error;
+    return (data || []).map(pageFromRow);
+  }
+  const pages = [];
+  const batchSize = 250;
+  let cursor;
+  for (;;) {
+    const query = db.from('cms_pages').select(columns).order('id').limit(batchSize);
+    if (cursor !== undefined) query.gt('id',cursor);
+    const {data,error} = await query;
+    if (error) throw error;
+    if (!data?.length) return pages;
+    pages.push(...data.map(pageFromRow));
+    cursor = data.at(-1).id;
+  }
 }
 
 async function dbRead(name) {
@@ -50,11 +94,6 @@ async function dbRead(name) {
     const { data, error } = await db.from(table).select('data').eq('id', 1).maybeSingle();
     if (error) throw error;
     return data?.data ?? (name === 'menus' ? { header: [], footer: [] } : {});
-  }
-  if (name === 'pages') {
-    const { data, error } = await db.from('cms_pages').select('id,data,slug,status,order_num,created_at,updated_at').order('order_num', { ascending: true });
-    if (error) throw error;
-    return (data || []).map((row) => ({ ...(row.data || {}), id: Number(row.id), slug: row.slug, status: row.status, order: row.order_num, createdAt: row.data?.createdAt || row.created_at, updatedAt: row.updated_at }));
   }
   if (name === 'enquiries') {
     const rows=[];for(let offset=0;;offset+=1000){const {data,error}=await db.from('cms_enquiries').select('id,data,created_at,updated_at').order('id',{ascending:false}).range(offset,offset+999);if(error)throw error;rows.push(...(data||[]));if(!data||data.length<1000)break;}
@@ -148,7 +187,108 @@ export function getStorageStatus() {
 }
 export const getSettings = cache(async () => (await readCollection('settings')) || {});
 export const getMenus = cache(async () => (await readCollection('menus')) || { header: [], footer: [] });
-export const getPages = cache(async () => (await readCollection('pages')) || []);
+export const getPages = cache(async () => (await readPages()).sort((a,b) => a.order - b.order || a.id - b.id));
+export const getPageSummaries = cache(() => readPages({columns:pageSummaryColumns}));
+export const findPageBySlug = cache(slug => readPages({key:'slug',value:slug}));
+export const findPageById = cache(id => Number.isSafeInteger(id) ? readPages({key:'id',value:id}) : null);
+export const readNavigationPages = slugs => readPages({slugs});
+
+function pageError(message, status) {
+  return Object.assign(new Error(message), {status});
+}
+
+function checkPageWrite(error) {
+  if (!error) return;
+  if (error.code === '23505') throw pageError('A page with this slug already exists.',409);
+  if (error.code === '40001') throw pageError('This page changed after you opened it. Reload it before saving.',409);
+  if (error.code === 'P0002') throw pageError('Page not found.',404);
+  if (['42883','PGRST202'].includes(error.code)) {
+    throw Object.assign(new Error('Apply the JMP page storage migration before editing pages.'), {
+      code:'STORAGE_NOT_CONFIGURED',status:503
+    });
+  }
+  throw error;
+}
+
+async function mutateLocalPages(mutate) {
+  if (isProduction()) throw Object.assign(new Error('Connect Supabase before editing pages.'), {code:'STORAGE_NOT_CONFIGURED',status:503});
+  return localMutate('local-store.json',await getSeed(),store => {
+    store.pages ||= [];
+    store.revisions ||= {};
+    return mutate(store);
+  });
+}
+
+export async function insertPageRecord(page, actor) {
+  const db = supabaseAdmin();
+  let saved;
+  if (db) {
+    await ensureSeed();
+    const {data,error} = await db.rpc('coretax_insert_page',{p_page:page,p_actor:actor});
+    checkPageWrite(error);
+    saved = pageFromRow(data);
+  } else {
+    saved = await mutateLocalPages(store => {
+      if (store.pages.some(item => item.slug === page.slug)) throw pageError('A page with this slug already exists.',409);
+      const timestamp = new Date().toISOString();
+      const created = {...page,id:nextId(store.pages),createdAt:timestamp,updatedAt:timestamp,updatedBy:actor};
+      store.pages.push(created);
+      return created;
+    });
+  }
+  invalidatePublicContent();
+  return saved;
+}
+
+export async function updatePageRecord(page, expectedAt, actor) {
+  const db = supabaseAdmin();
+  let saved;
+  if (db) {
+    const {data,error} = await db.rpc('coretax_update_page',{p_id:page.id,p_expected:expectedAt,p_page:page,p_actor:actor});
+    checkPageWrite(error);
+    saved = pageFromRow(data);
+  } else {
+    saved = await mutateLocalPages(store => {
+      const index = store.pages.findIndex(item => item.id === page.id);
+      const previous = store.pages[index];
+      if (!previous) throw pageError('Page not found.',404);
+      if (previous.updatedAt !== expectedAt) throw pageError('This page changed after you opened it. Reload it before saving.',409);
+      if (store.pages.some(item => item.id !== page.id && item.slug === page.slug)) throw pageError('A page with this slug already exists.',409);
+      const timestamp = new Date(Math.max(Date.now(),(Date.parse(expectedAt) || 0)+1)).toISOString();
+      const revision = {id:crypto.randomUUID(),savedAt:timestamp,savedBy:actor,page:previous};
+      store.revisions[page.id] = [revision,...(store.revisions[page.id] || [])].slice(0,30);
+      return store.pages[index] = {...page,createdAt:previous.createdAt,updatedAt:timestamp,updatedBy:actor};
+    });
+  }
+  invalidatePublicContent();
+  return saved;
+}
+
+export async function removePageRecord(page) {
+  const db = supabaseAdmin();
+  if (db) {
+    const {error} = await db.rpc('coretax_delete_page',{p_id:page.id,p_expected:page.updatedAt});
+    checkPageWrite(error);
+  } else {
+    await mutateLocalPages(store => {
+      const index = store.pages.findIndex(item => item.id === page.id && item.updatedAt === page.updatedAt);
+      if (index < 0) throw pageError('This page changed after you opened it. Reload it before deleting.',409);
+      store.pages.splice(index,1);
+      delete store.revisions[page.id];
+    });
+  }
+  invalidatePublicContent();
+}
+
+export async function getPageRevisions(pageId) {
+  if (!Number.isSafeInteger(pageId)) return [];
+  const db = supabaseAdmin();
+  if (!db) return (await readLocal()).revisions[pageId] || [];
+  const {data,error} = await db.from('cms_revisions').select('id,snapshot,created_at,created_by').eq('page_id',pageId)
+    .order('created_at',{ascending:false}).order('id',{ascending:false}).limit(30);
+  if (error) throw error;
+  return (data || []).map(row => ({...row.snapshot,id:row.id,savedAt:row.snapshot?.savedAt || row.created_at,savedBy:row.snapshot?.savedBy || row.created_by || ''}));
+}
 export async function getEnquiries() { return (await readCollection('enquiries')) || []; }
 export async function getMedia() { return (await readCollection('media')) || []; }
 export async function getRevisions() { return (await readCollection('revisions')) || {}; }

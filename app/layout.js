@@ -9,7 +9,7 @@ import QuickContact from './components/QuickContact';
 import PublicAnalytics from './components/PublicAnalytics';
 import { siteOrigin } from './lib/seo.mjs';
 import PublicCustomCSS from './components/PublicCustomCSS';
-import { getMenus, getSettings, listPages } from './lib/public-store';
+import { getMenus, getSettings, listServicePages } from './lib/public-store';
 import {resolvedPublicMenus} from './lib/experience.mjs';
 import { appearanceVariables } from './lib/appearance.mjs';
 
@@ -29,7 +29,7 @@ export async function generateMetadata() {
 }
 
 export default async function RootLayout({ children }) {
-  const [settings, storedMenus, pages] = await Promise.all([getSettings(), getMenus(), listPages()]);
+  const [settings, storedMenus, pages] = await Promise.all([getSettings(), getMenus(), listServicePages()]);
   const menus=resolvedPublicMenus(storedMenus,pages);
   return (
     <html lang="en" className={`${poppins.variable} ${cormorant.variable}`}>

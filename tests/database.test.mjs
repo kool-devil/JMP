@@ -83,3 +83,35 @@ test('cancellation blocks rescheduling and a pending reschedule blocks cancellat
 });
 test('the service role can execute transactional enquiry storage without browser privileges',async()=>{await db.exec('set role service_role');try{assert.ok((await create()).enquiry.reference.startsWith('JMP-'));}finally{await db.exec('reset role');}});
 test('an expired fifth delivery lease becomes a reviewable failure',async()=>{await create(undefined,crypto.randomUUID(),[{key:'expired-worker',message:{text:'Test'}}]);await db.exec("update cms_jobs set state='processing',attempts=5,claimed_at=now()-interval '20 minutes'");await query('select * from coretax_claim_jobs(1)');assert.equal((await query('select state from cms_jobs'))[0].state,'failed');});
+
+test('page saves preserve other edits and keep revisions in the same transaction', async () => {
+  const migration = await fs.readFile(new URL('../supabase/migrations/20261127_page_storage.sql', import.meta.url), 'utf8');
+  await db.exec(migration);
+  const add = async (slug, title) => (await query(
+    'select * from coretax_insert_page($1::jsonb,$2)',
+    [JSON.stringify({slug,title,status:'draft'}),'editor']
+  ))[0];
+  const save = async (page, changes) => (await query(
+    'select * from coretax_update_page($1,$2,$3::jsonb,$4)',
+    [page.id,page.updated_at,JSON.stringify({...page.data,...changes}),'editor']
+  ))[0];
+  await db.exec('set role service_role');
+  try {
+    const a = await add('test-page-a','First draft');
+    const b = await add('test-page-b','Second draft');
+    const savedA = await save(a,{title:'First approved'});
+    const savedB = await save(b,{title:'Second approved'});
+    assert.notEqual(a.id,b.id);
+    await assert.rejects(save(a,{title:'Stale draft'}), error => error.code === '40001');
+    await assert.rejects(save(savedA,{slug:b.slug}), error => error.code === '23505');
+    const [{data}] = await query('select data from cms_pages where id=$1',[a.id]);
+    assert.equal(data.title,'First approved');
+    const [revision] = await query('select snapshot from cms_revisions where page_id=$1',[a.id]);
+    assert.equal(revision.snapshot.page.title,'First draft');
+    assert.equal((await query('select count(*)::int as count from cms_revisions where page_id=$1',[a.id]))[0].count,1);
+    await query('select coretax_delete_page($1,$2)',[savedB.id,savedB.updated_at]);
+    assert.equal((await query('select id from cms_revisions where page_id=$1',[savedB.id])).length,0);
+    assert.equal((await query('select id from cms_revisions where page_id=$1',[a.id])).length,1);
+  } finally { await db.exec('reset role'); }
+  assert.equal((await query("select has_function_privilege('anon','coretax_update_page(bigint,timestamptz,jsonb,text)','EXECUTE') allowed"))[0].allowed,false);
+});

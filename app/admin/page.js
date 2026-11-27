@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import SectionBuilder, { newSection } from './components/SectionBuilder';
 import MenuBuilder from './components/MenuBuilder';
 import MediaPicker from './components/MediaPicker';
@@ -102,6 +102,7 @@ export default function AdminPage() {
   const [media, setMedia] = useState([]);
   const [storage, setStorage] = useState(null);
   const [editing, setEditing] = useState(null);
+  const pageLoad = useRef(0);
   const [revisions, setRevisions] = useState([]);
   const [pageSearch, setPageSearch] = useState('');
   const [saving, setSaving] = useState(false);
@@ -191,7 +192,7 @@ export default function AdminPage() {
     try {
       const statusData = await read('/api/admin/status'); setStorage(statusData || null);
       const jobs = [];
-      if (can('pages:read', user)) jobs.push(read('/api/admin/pages').then((d) => setPages(d.pages || []))); else setPages([]);
+      if (can('pages:read', user)) jobs.push(read('/api/admin/pages?summary=true').then((d) => setPages(d.pages || []))); else setPages([]);
       if (can('settings:read', user) || can('menus:read', user) || can('forms:read', user) || can('appearance:read', user)) jobs.push(read('/api/admin/settings').then((d) => { setSettings(d.settings || {}); setMenus(d.menus || { header: [], footer: [] }); setSavedConfigSignature(JSON.stringify({settings:d.settings || {},menus:d.menus || {header:[],footer:[]}})); }));
       if (can('enquiries:read', user)) jobs.push(read('/api/admin/enquiries?pageSize=5').then((d) => {setEnquiries(d.enquiries || []);setEnquirySummary(d.summary || {total:d.total || 0,stages:{}});})); else setEnquiries([]);
       if (can('media:read', user)) jobs.push(read('/api/admin/media').then((d) => setMedia(d.media || []))); else setMedia([]);
@@ -301,6 +302,12 @@ export default function AdminPage() {
   function makePreset(name = 'blank') { return structuredClone(pagePresets[name] || pagePresets.blank); }
 
   async function editPage(page, preset = 'blank') {
+    const loadId = ++pageLoad.current;
+    if (page?.id) {
+      try { page = (await api(`/api/admin/pages/${page.id}`)).page; }
+      catch (error) { return notify(error.message,'error'); }
+      if (loadId !== pageLoad.current) return;
+    }
     let draft = page ? structuredClone(page) : makePreset(preset);
     const key = `coretax-page-draft-${draft.id || 'new'}`;
     try {
@@ -310,7 +317,10 @@ export default function AdminPage() {
     setSavedPageSignature(page ? JSON.stringify(page) : '');
     setEditing(draft); setLocalSavedAt(null); setTab('edit-page'); setRevisions([]);
     if (draft.id) {
-      try { const data = await api(`/api/admin/pages/${draft.id}/revisions`); setRevisions(data.revisions || []); } catch { setRevisions([]); }
+      try {
+        const data = await api(`/api/admin/pages/${draft.id}/revisions`);
+        if (loadId === pageLoad.current) setRevisions(data.revisions || []);
+      } catch { if (loadId === pageLoad.current) setRevisions([]); }
     }
   }
 
@@ -346,8 +356,13 @@ export default function AdminPage() {
     const existing = new Set(pages.map((p) => p.slug));
     const base = `${page.slug === 'home' ? 'home' : page.slug}-copy`; let slug = base; let count = 2;
     while (existing.has(slug)) slug = `${base}-${count++}`;
-    const payload = { ...page, id: undefined, createdAt: undefined, updatedAt: undefined, slug, title: `${page.title} Copy`, status: 'draft', order: (Number(page.order) || 99) + 1 };
-    try { await api('/api/admin/pages', { method: 'POST', body: JSON.stringify(payload) }); notify('Page duplicated as a draft.'); await loadAll(); }
+    try {
+      const {page:original} = await api(`/api/admin/pages/${page.id}`);
+      const payload = {...original,id:undefined,createdAt:undefined,updatedAt:undefined,slug,title:`${original.title} Copy`,status:'draft',order:(Number(original.order) || 99)+1};
+      await api('/api/admin/pages',{method:'POST',body:JSON.stringify(payload)});
+      notify('Page duplicated as a draft.');
+      await loadAll();
+    }
     catch (error) { notify(error.message, 'error'); }
   }
 
@@ -362,7 +377,13 @@ export default function AdminPage() {
   }
 
   async function togglePublish(page) {
-    try { await api(`/api/admin/pages/${page.id}`, { method: 'PUT', body: JSON.stringify({ ...page, status: page.status === 'published' ? 'draft' : 'published' }) }); notify(page.status === 'published' ? 'Page moved to draft.' : publicationLabel({...page,status:'published'}) === 'scheduled' ? 'Page scheduled for its selected publication time.' : 'Page published.'); await loadAll(); }
+    try {
+      const {page:original} = await api(`/api/admin/pages/${page.id}`);
+      const status = original.status === 'published' ? 'draft' : 'published';
+      const {page:saved} = await api(`/api/admin/pages/${page.id}`,{method:'PUT',body:JSON.stringify({...original,status})});
+      notify(status === 'draft' ? 'Page moved to draft.' : publicationLabel(saved) === 'scheduled' ? 'Page scheduled for its selected publication time.' : 'Page published.');
+      await loadAll();
+    }
     catch (error) { notify(error.message, 'error'); }
   }
 

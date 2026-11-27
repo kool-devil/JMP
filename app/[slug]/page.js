@@ -7,7 +7,7 @@ import {WaitingListCancellation} from '../components/AppointmentWaitlist';
 import SiteSearch from '../components/SiteSearch';
 import {siteSearchEntries} from '../lib/site-search.mjs';
 import Link from 'next/link';
-import { getPageBySlug, getSettings, listPages } from '../lib/public-store';
+import { getPageBySlug, getSettings, listPages, listSearchPages } from '../lib/public-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,7 @@ export async function generateMetadata({ params }) {
 
 export default async function DynamicPage({ params }) {
   const { slug } = await params;
-  if (slug === 'search') return <SiteSearch entries={siteSearchEntries(await listPages())}/>;
+  if (slug === 'search') return <SiteSearch entries={siteSearchEntries(await listSearchPages())}/>;
   if (slug === 'waitlist') return <WaitingListCancellation/>;
   if (slug === 'client-portal') { const settings=await getSettings(); return settings.clientPortalEnabled===true ? <ClientPortal/> : <main id="main-content" className="portal-shell"><span className="eyebrow">Client workspace</span><h1>Let’s help you get started.</h1><p>Contact the team to arrange access to your client workspace.</p><Link className="btn" href="/contact">Contact the team</Link></main>; }
   const [page, settings] = await Promise.all([getPageBySlug(slug), getSettings()]);
