@@ -11,6 +11,7 @@ export default function SmtpSettings({api,Field,onSaved}) {
   const [pending,setPending] = useState('load');
   const [feedback,setFeedback] = useState(null);
   const [dirty,setDirty] = useState(false);
+  const [testRecipient,setTestRecipient] = useState('');
 
   function loadState(value) {
     setStatus(value);
@@ -69,6 +70,25 @@ export default function SmtpSettings({api,Field,onSaved}) {
     }
   }
 
+  async function sendTest(event) {
+    event.preventDefault();
+    setPending('send');
+    setFeedback(null);
+    try {
+      const {lastDeliveryTest} = await api(endpoint,{
+        method:'POST',body:JSON.stringify({action:'send-test',recipient:testRecipient})
+      });
+      setStatus(current=>({...current,lastDeliveryTest}));
+      setFeedback(lastDeliveryTest.status === 'accepted'
+        ? {text:'The SMTP server accepted the test message. Check the recipient inbox and spam folder.'}
+        : {error:true,text:'The test message could not be sent. Check the SMTP settings and sender address.'});
+    } catch (error) {
+      setFeedback({error:true,text:error.message});
+    } finally {
+      setPending('');
+    }
+  }
+
   return <section className="admin-card">
     <div className="admin-page-head"><div><h2>SMTP settings</h2><p className="small">Configure outgoing email for enquiries, bookings, and client portal notifications.</p></div></div>
     {feedback && <p className={feedback.error ? 'inline-warning' : 'small'} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
@@ -101,6 +121,12 @@ export default function SmtpSettings({api,Field,onSaved}) {
           </div>
         </fieldset>
       </form>
+      {status.settings && <form className="settings-extension" onSubmit={sendTest}>
+        <h3>Test email delivery</h3>
+        <Field label="Test recipient" type="email" value={testRecipient} required onChange={setTestRecipient}/>
+        <button type="submit" className="admin-btn light" disabled={Boolean(pending) || dirty}>{pending === 'send' ? 'Sending…' : 'Send test email'}</button>
+        {status.lastDeliveryTest && <p className="small">Latest test: {status.lastDeliveryTest.status === 'accepted' ? 'Accepted by the SMTP server' : 'Failed'} · <time dateTime={status.lastDeliveryTest.at}>{new Date(status.lastDeliveryTest.at).toLocaleString()}</time></p>}
+      </form>}
       {(!status.encryptionReady || status.credentialsUnreadable) && status.enabled && <button type="button" className="admin-btn light" disabled={Boolean(pending)} onClick={()=>update({action:'disable'},'SMTP disabled.')}>Disable SMTP</button>}
     </>}
   </section>;

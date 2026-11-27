@@ -43,8 +43,8 @@ const adapters = {
   auth: "export async function requirePermission(req, permission, options) { const session = {role:req.headers.get('x-role'),userId:'test-id'}; globalThis.__jmpSmtpTest.permission=permission; if (session.role !== 'super_admin' || (options?.csrf && !req.headers.get('x-csrf-token'))) throw Object.assign(new Error('Forbidden'),{status:403}); return session; }",
   security: "export const rateLimit = async ()=>({allowed:true}); export async function writeSecurityAudit(){}",
   'api-error': "export const apiError=(error,fallback)=>Response.json({message:error.message || fallback},{status:error.status || 500});",
-  supabase: "export const supabaseAdmin=()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{data:globalThis.__jmpSmtpTest.record}})})}),upsert:async row=>{globalThis.__jmpSmtpTest.record=row.data;return {};}})});",
-  'smtp-transport.mjs': "export async function createSmtpTransport(config){ return {verify:async()=>{globalThis.__jmpSmtpTest.verified=config.host;},close(){}}; }"
+  supabase: "export const supabaseAdmin=()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{data:globalThis.__jmpSmtpTest.record}})})}),upsert:async row=>{globalThis.__jmpSmtpTest.record=row.data;return {};},update:row=>({eq:()=>({eq:()=>({eq:async()=>{globalThis.__jmpSmtpTest.record=row.data;return {};}})})})})});",
+  'smtp-transport.mjs': "export async function createSmtpTransport(config){ return {verify:async()=>{globalThis.__jmpSmtpTest.verified=config.host;},sendMail:async message=>{globalThis.__jmpSmtpTest.recipient=message.to[0];return {accepted:message.to};},close(){}}; } export function smtpMessage(message){return message;}"
 };
 
 async function smtpRoute() {
@@ -90,6 +90,16 @@ test('SMTP settings deny ordinary admins, require CSRF, and never return the sav
     assert.equal((await route.POST(request('POST','admin',null,true))).status,403);
     assert.equal((await route.POST(request('POST','super_admin',null,true))).status,200);
     assert.equal(globalThis.__jmpSmtpTest.verified,input.host);
+    assert.equal((await route.POST(request('POST','super_admin',{action:'send-test',recipient:'one@example.com,two@example.com'},true))).status,400);
+    const sent = await route.POST(request('POST','super_admin',{action:'send-test',recipient:'one@example.com'},true));
+    assert.equal(sent.status,200);
+    assert.equal((await sent.json()).lastDeliveryTest.status,'accepted');
+    assert.equal(globalThis.__jmpSmtpTest.recipient,'one@example.com');
+    const stored = await route.GET(request('GET','super_admin'));
+    const status = await stored.json();
+    assert.equal(status.lastDeliveryTest.status,'accepted');
+    assert.ok(!JSON.stringify(status).includes('one@example.com'));
+
     const disabled = await route.PUT(request('PUT','super_admin',{...input,password:'',enabled:false},true));
     assert.equal((await disabled.json()).enabled,false);
   } finally {

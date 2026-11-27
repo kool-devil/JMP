@@ -86,7 +86,7 @@ function Section({ section, settings, preview = false, service = '' }) {
 export default function PageRenderer({ page, settings = {}, preview = false, relatedPosts = [], availablePages = [] }) {
   page=refinePublicPage(page,preview?undefined:availablePages);
   const home=page.slug==='home'||page.template==='home',service=SERVICE_GUIDES.find(g=>g.slug===page.slug),anchors=sectionAnchors(page);
-  if(page.slug==='thank-you')return <main id="main-content" className="public-main" tabIndex={-1}><EnquiryConfirmation/></main>;
+  if(page.slug==='thank-you')return <main id="main-content" className="public-main" tabIndex={-1}><EnquiryConfirmation responseExpectation={settings.enquiryResponseExpectation}/></main>;
   return <main id="main-content" className={`public-main template-${page.template || 'default'}`} tabIndex={-1}>
     <Hero page={page}/>
     {page.template==='service'&&<ServiceNavigation items={anchors.map(({id,label})=>({id,label}))}/>}

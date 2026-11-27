@@ -2,6 +2,7 @@
 import {useEffect,useId,useRef,useState} from 'react';
 import Link from 'next/link';
 import Icon from './Icon';
+import EnquiryNextSteps from './EnquiryNextSteps';
 import {trackEvent,enquiryAttribution} from '../lib/analytics.mjs';
 import {PAGE_SERVICES} from '../lib/service-links.mjs';
 import {validateEnquiry} from '../lib/crm.mjs';
@@ -28,11 +29,11 @@ export default function ContactForm({services=fallbackServices,heading='Send an 
    if(!data.duplicate)trackEvent('generate_lead',{form_id:'enquiry'});
    const reference=/^JMP-\d{6,}$/.test(data.reference||'')?data.reference:'';
    setReceipt(reference||'received');setStatus(successMessage);
-   try{sessionStorage.setItem('jmp-enquiry-receipt',JSON.stringify({reference,at:Date.now()}));}catch{}
+   try{sessionStorage.setItem('jmp-enquiry-receipt',JSON.stringify({reference,at:Date.now(),service:Object.values(PAGE_SERVICES).includes(validation.value.service) ? validation.value.service : ''}));}catch{}
   }catch(err){setStatus(err.message||'Your enquiry could not be submitted. Please try again.');setTurnstileToken('');setTurnstileReset(n=>n+1);}
   finally{busy.current=false;setLoading(false);}
  }
- if(receipt)return <div className="contact-form enquiry-success" role="status"><span className="receipt-check" aria-hidden="true">✓</span><h3>Enquiry received.</h3><p>{status}</p>{receipt!=='received'&&<p className="receipt-reference">Your reference: <strong>{receipt}</strong></p>}<p>The team will review your request and contact you using the details provided.</p><Link className="btn" href="/thank-you">What happens next <Icon name="arrow" size={18}/></Link></div>;
+ if(receipt)return <div className="contact-form enquiry-success" role="status"><span className="receipt-check" aria-hidden="true">✓</span><h3>Enquiry received.</h3><p>{status}</p>{receipt!=='received'&&<p className="receipt-reference">Your reference: <strong>{receipt}</strong></p>}<EnquiryNextSteps service={selectedService} responseExpectation={responseExpectation}/><Link className="btn" href="/thank-you">What happens next <Icon name="arrow" size={18}/></Link></div>;
  return <form id="enquiry-form" className="contact-form" onSubmit={submit} aria-busy={loading} noValidate>
   {heading&&<h3>{heading}</h3>}<p className="contact-form-intro">Share a few details. Fields marked * are required.</p>{responseExpectation && <p className="contact-form-intro">{responseExpectation}</p>}
   {status&&<div ref={summary} tabIndex={-1} className="form-status error" role="alert">{status}{Object.keys(errors).length>0&&<ul>{Object.entries(errors).map(([name,message])=><li key={name}><a href={'#'+formId+'-'+name}>{message}</a></li>)}</ul>}</div>}

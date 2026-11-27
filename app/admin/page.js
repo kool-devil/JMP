@@ -11,6 +11,7 @@ import TurnstileWidget from '../components/TurnstileWidget';
 import Icon from '../components/Icon';
 import { isPublicPage, publicationLabel, isEnquiryOverdue } from '../lib/publishing.mjs';
 import SiteHealth from './components/SiteHealth';
+import DashboardWorkQueue from './components/DashboardWorkQueue';
 import { DeliverySettings, SiteExtensionsSettings } from './components/SiteExtensionsSettings';
 import SmtpSettings from './components/SmtpSettings';
 import TrafficDashboard from './components/TrafficDashboard';
@@ -44,7 +45,7 @@ const pagePresets = {
 };
 
 function StatCard({ label, value, note, onClick }) {
-  const icons = { Pages: 'document', Drafts: 'edit', 'New Enquiries': 'mail', Media: 'image' };
+  const icons = { Pages: 'document', Drafts: 'edit', Enquiries: 'mail', Media: 'image' };
   return <button type="button" className={`admin-stat ${onClick ? 'clickable' : ''}`} onClick={onClick}><div className="stat-label-row"><span>{label}</span><span className="stat-icon"><Icon name={icons[label] || 'chart'} size={19}/></span></div><strong>{value}</strong>{note && <small>{note}</small>}</button>;
 }
 
@@ -87,6 +88,7 @@ export default function AdminPage() {
   const [practiceEnquiry,setPracticeEnquiry]=useState(null);
   const [session, setSession] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionLoadError,setSessionLoadError] = useState(false);
   const [csrfToken, setCsrfToken] = useState('');
   const [login, setLogin] = useState({ username: 'admin', password: '', otp: '' });
   const [message, setMessage] = useState('');
@@ -157,7 +159,7 @@ export default function AdminPage() {
     const headers = (!['GET', 'HEAD'].includes(method) && csrfToken && !url.endsWith('/login')) ? { ...baseHeaders, 'x-csrf-token': csrfToken } : baseHeaders;
     const response = await fetch(url, { ...options, headers, credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Request failed.');
+    if (!response.ok) throw Object.assign(new Error(data.message || 'Request failed.'),{status:response.status});
     return data;
   }
 
@@ -166,25 +168,39 @@ export default function AdminPage() {
   }
 
   async function checkSession() {
-    try { const data = await api('/api/admin/me'); setSession(data.user); setCsrfToken(data.csrfToken || ''); await loadAll(data.user); if(new URLSearchParams(window.location.search).has('insights')&&can('analytics:read',data.user))setTab('insights'); }
-    catch { setSession(null); }
-    finally { setCheckingSession(false); }
+    setCheckingSession(true);
+    setSessionLoadError(false);
+    const signal = AbortSignal.timeout(12000);
+    try {
+      const data = await api('/api/admin/me',{signal});
+      setSession(data.user);
+      setCsrfToken(data.csrfToken || '');
+      await loadAll(data.user,{signal});
+      if (new URLSearchParams(window.location.search).has('insights') && can('analytics:read',data.user)) setTab('insights');
+    } catch (error) {
+      setSession(null);
+      setCsrfToken('');
+      if (error.status !== 401) setSessionLoadError(true);
+    } finally {
+      setCheckingSession(false);
+    }
   }
 
-  async function loadAll(user = session) {
+  async function loadAll(user = session, options = {}) {
+    const read = url => api(url,options);
     try {
-      const statusData = await api('/api/admin/status'); setStorage(statusData || null);
+      const statusData = await read('/api/admin/status'); setStorage(statusData || null);
       const jobs = [];
-      if (can('pages:read', user)) jobs.push(api('/api/admin/pages').then((d) => setPages(d.pages || []))); else setPages([]);
-      if (can('settings:read', user) || can('menus:read', user) || can('forms:read', user) || can('appearance:read', user)) jobs.push(api('/api/admin/settings').then((d) => { setSettings(d.settings || {}); setMenus(d.menus || { header: [], footer: [] }); setSavedConfigSignature(JSON.stringify({settings:d.settings || {},menus:d.menus || {header:[],footer:[]}})); }));
-      if (can('enquiries:read', user)) jobs.push(api('/api/admin/enquiries?pageSize=5').then((d) => {setEnquiries(d.enquiries || []);setEnquirySummary(d.summary || {total:d.total || 0,stages:{}});})); else setEnquiries([]);
-      if (can('media:read', user)) jobs.push(api('/api/admin/media').then((d) => setMedia(d.media || []))); else setMedia([]);
+      if (can('pages:read', user)) jobs.push(read('/api/admin/pages').then((d) => setPages(d.pages || []))); else setPages([]);
+      if (can('settings:read', user) || can('menus:read', user) || can('forms:read', user) || can('appearance:read', user)) jobs.push(read('/api/admin/settings').then((d) => { setSettings(d.settings || {}); setMenus(d.menus || { header: [], footer: [] }); setSavedConfigSignature(JSON.stringify({settings:d.settings || {},menus:d.menus || {header:[],footer:[]}})); }));
+      if (can('enquiries:read', user)) jobs.push(read('/api/admin/enquiries?pageSize=5').then((d) => {setEnquiries(d.enquiries || []);setEnquirySummary(d.summary || {total:d.total || 0,stages:{}});})); else setEnquiries([]);
+      if (can('media:read', user)) jobs.push(read('/api/admin/media').then((d) => setMedia(d.media || []))); else setMedia([]);
       if (can('security:read', user)) {
-        jobs.push(api('/api/admin/security/status').then((d) => setSecurityStatus(d.security || null)));
-        jobs.push(api('/api/admin/security/audit?limit=100').then((d) => setSecurityEvents(d.events || [])));
+        jobs.push(read('/api/admin/security/status').then((d) => setSecurityStatus(d.security || null)));
+        jobs.push(read('/api/admin/security/audit?limit=100').then((d) => setSecurityEvents(d.events || [])));
       }
-      jobs.push(api('/api/admin/security/sessions').then((d) => setActiveSessions(d.sessions || [])).catch(() => setActiveSessions([])));
-      if (user?.role === 'super_admin') jobs.push(api('/api/admin/users').then((d) => setUsers(d.users || []))); else setUsers([]);
+      jobs.push(read('/api/admin/security/sessions').then((d) => setActiveSessions(d.sessions || [])).catch(() => setActiveSessions([])));
+      if (user?.role === 'super_admin') jobs.push(read('/api/admin/users').then((d) => setUsers(d.users || []))); else setUsers([]);
       await Promise.allSettled(jobs);
     } catch (error) { notify(error.message, 'error'); }
   }
@@ -406,14 +422,14 @@ export default function AdminPage() {
   const latestEnquiries = useMemo(() => enquiries.slice(0, 5), [enquiries]);
   const filteredSecurityEvents = useMemo(() => { const q = securitySearch.toLowerCase().trim(); return securityEvents.filter((event) => !q || JSON.stringify(event).toLowerCase().includes(q)); }, [securityEvents, securitySearch]);
 
-  if (checkingSession) return <main id="main-content" className="admin-shell admin-loading">
+  if (checkingSession || sessionLoadError) return <main id="main-content" className="admin-shell admin-loading">
     <div className="admin-loading-panel">
       <img src="/assets/img/jm-logo.webp" alt="J M Pabari & Associates" width="290" height="60" className="admin-loading-logo"/>
       <div className="admin-loading-status" role="status">
         <p>CoreTax CMS</p>
-        <h1>Opening your workspace</h1>
+        <h1>{sessionLoadError ? "Couldn’t open your workspace" : "Opening your workspace"}</h1>
       </div>
-      <div className="admin-loading-track" aria-hidden="true"><span/></div>
+      {sessionLoadError ? <><p className="admin-loading-help">Check your connection and try again.</p><button type="button" className="btn" onClick={checkSession}>Try again</button></> : <div className="admin-loading-track" aria-hidden="true"><span/></div>}
     </div>
   </main>;
 
@@ -467,8 +483,10 @@ export default function AdminPage() {
 
         {tab === 'dashboard' && <>
           <div className="admin-page-head dashboard-welcome"><div><span className="eyebrow">Your workspace at a glance</span><h2>Welcome back, {displayName.split(' ')[0]}.</h2><p className="small">A little clarity. A productive day. Everything you need is right here.</p></div><div className="admin-actions">{can('pages:write') && <><button className="admin-btn" onClick={() => editPage(null, 'blank')}>+ New Page</button><button className="admin-btn light" onClick={() => editPage(null, 'blog')}>+ New Blog</button></>}</div></div>
-          {overdueCount > 0 && can('enquiries:read') && <div className="overdue-notice"><span><b>{overdueCount} {overdueCount === 1 ? 'enquiry needs' : 'enquiries need'} follow-up.</b> Scheduled follow-ups and unanswered enquiries need attention.</span><button type="button" className="admin-btn light" onClick={() => {setEnquiryStatus('overdue');setTab('followups');}}>Review follow-ups</button></div>}
-          <div className="admin-stats-grid">{can('pages:read') && <><StatCard label="Pages" value={pages.length} note={`${pages.filter(p => isPublicPage(p)).length} published`} onClick={() => setTab('pages')} /><StatCard label="Drafts" value={pages.filter(p => p.status === 'draft').length} note="Not visible publicly" onClick={() => setTab('pages')} /></>}{can('enquiries:read') && <StatCard label="New Enquiries" value={enquirySummary.stages?.new || 0} note={`${enquirySummary.total || 0} total`} onClick={() => setTab('enquiries')} />}{can('media:read') && <StatCard label="Media" value={media.length} note="Images & files" onClick={() => setTab('media')} />}</div>
+          <DashboardWorkQueue api={api} navigate={navigateTab}
+            enquiries={can('enquiries:read')} bookings={can('booking:read')} operations={can('operations:read')}
+            newCount={enquirySummary.stages?.new || 0} overdueCount={overdueCount}/>
+          <div className="admin-stats-grid">{can('pages:read') && <><StatCard label="Pages" value={pages.length} note={`${pages.filter(p => isPublicPage(p)).length} published`} onClick={() => setTab('pages')} /><StatCard label="Drafts" value={pages.filter(p => p.status === 'draft').length} note="Not visible publicly" onClick={() => setTab('pages')} /></>}{can('enquiries:read') && <StatCard label="Enquiries" value={enquirySummary.total || 0} note="All stages" onClick={() => setTab('enquiries')} />}{can('media:read') && <StatCard label="Media" value={media.length} note="Images & files" onClick={() => setTab('media')} />}</div>
           {(can('pages:read') || can('enquiries:read')) && <div className="dashboard-grid">
             {can('pages:read') && <div className="admin-card"><div className="card-title-row"><h3>Recently Edited Pages</h3><button className="text-link" onClick={() => setTab('pages')}>View all</button></div>{recentPages.length ? <div className="simple-list">{recentPages.map((page) => <button key={page.id} onClick={() => editPage(page)}><span><b>{page.title}</b><small>{formatDate(page.updatedAt)}</small></span><em className={`pill ${publicationLabel(page)}`}>{publicationLabel(page)}</em></button>)}</div> : <EmptyPanel title="No pages yet" text="Create your first page to get started." />}</div>}
             {can('enquiries:read') && <div className="admin-card"><div className="card-title-row"><h3>Latest Enquiries</h3><button className="text-link" onClick={() => setTab('enquiries')}>View all</button></div>{latestEnquiries.length ? <div className="simple-list">{latestEnquiries.map((item) => <button key={item.id} onClick={() => setTab('enquiries')}><span><b>{item.name}</b><small>{item.service || item.email}</small></span><em className={`enquiry-badge ${item.status || 'new'}`}>{item.status || 'new'}</em></button>)}</div> : <EmptyPanel title="No enquiries yet" text="New contact-form submissions will appear here." />}</div>}

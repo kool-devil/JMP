@@ -21,6 +21,14 @@ export async function saveSmtpRecord(data) {
   if (error) throw storageRequired(error);
 }
 
+export async function recordSmtpDeliveryTest(record, result) {
+  const db = supabaseAdmin();
+  if (!db) throw storageRequired();
+  const {error} = await db.from('cms_integrations').update({data:{...record,lastDeliveryTest:result}})
+    .eq('id',smtpRecord).eq('data->>encrypted',record.encrypted).eq('data->>enabled',String(record.enabled));
+  if (error) throw storageRequired(error);
+}
+
 export async function getMailProvider(environment = process.env) {
   const smtp = await readSmtpRecord();
   if (smtp?.enabled) return {provider:'SMTP',smtp:openSmtp(smtp.encrypted,environment)};
