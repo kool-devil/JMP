@@ -406,7 +406,16 @@ export default function AdminPage() {
   const latestEnquiries = useMemo(() => enquiries.slice(0, 5), [enquiries]);
   const filteredSecurityEvents = useMemo(() => { const q = securitySearch.toLowerCase().trim(); return securityEvents.filter((event) => !q || JSON.stringify(event).toLowerCase().includes(q)); }, [securityEvents, securitySearch]);
 
-  if (checkingSession) return <main id="main-content" className="admin-shell admin-loading" aria-busy="true"><span className="cms-loader"/><p role="status">Opening your workspace…</p></main>;
+  if (checkingSession) return <main id="main-content" className="admin-shell admin-loading">
+    <div className="admin-loading-panel">
+      <img src="/assets/img/jm-logo.webp" alt="J M Pabari & Associates" width="290" height="60" className="admin-loading-logo"/>
+      <div className="admin-loading-status" role="status">
+        <p>CoreTax CMS</p>
+        <h1>Opening your workspace</h1>
+      </div>
+      <div className="admin-loading-track" aria-hidden="true"><span/></div>
+    </div>
+  </main>;
 
   if (!session) return <main id="main-content" className="admin-shell admin-login">
     <aside className="login-story"><a className="login-wordmark" href="/">JMP<span>CORETAX CMS</span></a><div className="login-story-copy"><span className="login-overline">YOUR DIGITAL WORKSPACE</span><h2>A considered home<br/>for your content.</h2><p>Manage your pages, publish your insights and keep your website moving forward.</p><div className="login-capabilities"><span><Icon name="document" size={18}/>Content & pages</span><span><Icon name="palette" size={18}/>Brand & appearance</span><span><Icon name="shield" size={18}/>Account security</span></div></div><div className="login-story-foot">J M Pabari &amp; Associates<span>Chartered Accountants</span></div></aside>
