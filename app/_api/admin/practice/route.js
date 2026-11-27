@@ -1,3 +1,4 @@
+import {getMailStatus} from '../../../lib/mail-provider';
 import crypto from 'node:crypto';
 import {after} from 'next/server';
 import {requirePermission} from '../../../lib/auth';
@@ -27,7 +28,7 @@ export async function GET(request) {
    const enquiries=await getEnquiries();return practiceJson({report: businessReport(enquiries.filter(e => inRange(e.createdAt)), all.filter(i => i.kind === 'case'), all.filter(i => i.kind === 'quote' && inRange(i.data.decidedAt || i.created_at)),all.filter(i=>i.kind==='payment'&&inRange(i.data.paidOn)),enquiries), from, to});
   }
   const [clients, users, settings] = await Promise.all([listClients(query.get('search'), query.get('page')), listUsers(), getSettings()]);
-  return practiceJson({...clients, team: users.filter(u => !u.disabled&&hasPermission(u.role,'practice:read')).map(u => ({id: u.id, name: u.displayName || u.username})), rules: settings.practiceWorkflowRules || [], portalEnabled: settings.clientPortalEnabled === true, remindersEnabled: settings.practiceRemindersEnabled === true, emailReady: Boolean(process.env.RESEND_API_KEY && process.env.ENQUIRY_EMAIL_FROM), inboundEmailReady: String(process.env.CRM_EMAIL_WEBHOOK_SECRET || '').length >= 32, authReady: getSupabaseStatus().authConfigured});
+  return practiceJson({...clients, team: users.filter(u => !u.disabled&&hasPermission(u.role,'practice:read')).map(u => ({id: u.id, name: u.displayName || u.username})), rules: settings.practiceWorkflowRules || [], portalEnabled: settings.clientPortalEnabled === true, remindersEnabled: settings.practiceRemindersEnabled === true, emailReady: (await getMailStatus()).configured, inboundEmailReady: String(process.env.CRM_EMAIL_WEBHOOK_SECRET || '').length >= 32, authReady: getSupabaseStatus().authConfigured});
  } catch (error) { return practiceApiError(error); }
 }
 export async function POST(request) {
@@ -43,6 +44,7 @@ export async function POST(request) {
   else if (payload.action === 'revoke-client-sessions') { await requirePermission(request, 'practice:manage'); await practiceResult(practiceDb().from('cms_portal_sessions').delete().eq('client_id', payload.clientId)); result={revoked:true}; }
   else if (payload.action === 'invite') {
    await requirePermission(request, 'practice:manage');
+   if (payload.sendEmail === true && !(await getMailStatus()).configured) throw crmError('Configure email delivery before sending this notification.', 503);
    const invitation = await generatePortalInvite(payload.clientId);
    if (payload.sendEmail === true) { await enqueueEmails([clientMailPlan(invitation.client, 'portal-invite-' + crypto.randomUUID(), 'Your private client portal invitation', 'Use this one-time link to set your password and open your client workspace.\n\n' + invitation.url)]); result = {queued: true}; }
    else result = {inviteUrl: invitation.url};

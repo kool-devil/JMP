@@ -1,3 +1,4 @@
+import {getMailStatus} from './mail-provider';
 import crypto from 'node:crypto';
 import {practiceDb, practiceResult, clientMailPlan, portalUrl} from './practice-store';
 import {enqueueEmails} from './mail-queue';
@@ -13,7 +14,7 @@ export async function joinAppointmentWaitlist(payload, settings) {
  const first = dateKey(new Date(), config.timeZone), last = dateKey(new Date(Date.now() + config.windowDays * 86400000), config.timeZone);
  if (!name || !validEmail(email) || !service || !UUID.test(payload.requestId || '') || !validDate(date) || date < first || date > last || payload.consent !== true) throw crmError('Enter your name, email, service and a date within the booking window, and allow a waiting-list email.');
  const origin = new URL(portalUrl(settings)).origin, token = crypto.randomBytes(32).toString('hex'), dedupe = portalHash(email + '|' + date + '|' + config.staffId), db = practiceDb();
- if (!process.env.RESEND_API_KEY || !process.env.ENQUIRY_EMAIL_FROM) throw crmError('Waiting-list email is unavailable. Please contact the team.', 503);
+ if (!(await getMailStatus()).configured) throw crmError('Waiting-list email is unavailable. Please contact the team.', 503);
  return practiceResult(db.rpc('coretax_join_waitlist', {p_id: payload.requestId, p_dedupe: dedupe, p_token_hash: portalHash(token), p_data: {name, email, service, date, staffId: config.staffId, staffName: config.staffName}, p_message: {from: process.env.ENQUIRY_EMAIL_FROM, to: [email], subject: 'Your consultation waiting-list request', text: `Your request for ${date} has been saved. We will email if a time becomes available. A notification does not reserve an appointment.\n\nLeave the waiting list: ${origin}/waitlist#${payload.requestId}.${token}`}}));
 }
 export async function cancelAppointmentWaitlist(payload) {
@@ -31,7 +32,7 @@ export async function runPracticeMaintenance(settings) {
  await practiceResult(db.from('cms_booking_waitlist').update({status:'expired'}).eq('status','waiting').lt('data->>date',today));
  await practiceResult(db.from('cms_booking_waitlist').delete().lt('created_at',new Date(now.getTime()-90*86400000).toISOString()));
  const plans = [], result = {taskNotifications: 0, bookingReminders: 0, waitingListNotifications: 0};
- if (!process.env.RESEND_API_KEY || !process.env.ENQUIRY_EMAIL_FROM) return {...result, mailSetupRequired: true};
+ if (!(await getMailStatus()).configured) return {...result, mailSetupRequired: true};
  if (settings.practiceRemindersEnabled) {
   const tasks = await practiceResult(db.rpc('coretax_due_practice_notifications',{p_today:today,p_until:tomorrow,p_limit:200}));
   for (const task of tasks) {

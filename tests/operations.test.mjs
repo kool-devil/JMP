@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {createRequire,Module} from 'node:module';
 import {build} from 'esbuild';
+import {sealSmtp} from '../app/lib/smtp-config.mjs';
 let state;
 class Query{
  constructor(table){this.table=table;this.filters=[];this.mode='read';this.returning=false;}
@@ -12,7 +13,7 @@ class Query{
 }
 const db={from:table=>new Query(table),rpc:async(name)=>{if(name==='coretax_backup_snapshot')return {data:structuredClone(state.snapshot)};if(name==='coretax_restore_snapshot'){state.restored=true;return {data:null};}if(name==='coretax_claim_jobs')return {data:structuredClone(state.jobs)};throw new Error('Unexpected RPC '+name);},auth:{admin:{getUserById:async id=>({data:{user:{id}}})}},storage:{from:bucket=>({upload:async(key,bytes)=>{state.files.set(bucket+'/'+key,Buffer.from(bytes));return {};},download:async key=>state.files.has(bucket+'/'+key)?{data:new Blob([state.files.get(bucket+'/'+key)])}:{error:{code:'missing'}},remove:async keys=>{for(const key of keys)state.files.delete(bucket+'/'+key);return {};}})}};
 beforeEach(()=>{state={tables:{cms_backups:[],cms_jobs:[]},files:new Map([['cms-media/coretax/photo.webp',Buffer.from('Original media bytes')]]),snapshot:{schemaVersion:9,tables:{cms_media:[{id:1,data:{id:1,bucket:'cms-media',storagePath:'coretax/photo.webp',type:'image/webp',url:'https://project.example/photo.webp'}}],cms_profiles:[],cms_enquiries:[{id:1,data:{name:'Private client'}}]}},jobs:[],events:[],restored:false};globalThis.__operationTest={db,state};process.env.CMS_BACKUP_ENCRYPTION_KEY='ab'.repeat(32);});
-async function module(file){const result=await build({entryPoints:[file],bundle:true,write:false,format:'cjs',platform:'node',external:['next/server'],plugins:[{name:'operation-adapters',setup(b){b.onResolve({filter:/\/(supabase|monitoring)$/},args=>({path:args.path.split('/').at(-1),namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},args=>({loader:'js',contents:args.path==='supabase'?"export const supabaseAdmin=()=>globalThis.__operationTest.db;export const mediaBucket=()=> 'cms-media';":"export async function recordOperation(...args){globalThis.__operationTest.state.events.push(args);}"}));}}]});const filename=path.resolve('tests/.operation-tests.cjs'),m=new Module(filename);m.filename=filename;m.paths=Module._nodeModulePaths(path.dirname(filename));m._compile(result.outputFiles[0].text,filename);return m.exports;}
+async function module(file){const result=await build({entryPoints:[file],bundle:true,write:false,format:'cjs',platform:'node',external:['next/server'],plugins:[{name:'operation-adapters',setup(b){b.onResolve({filter:/\/smtp-transport\.mjs$/},()=>({path:'smtp',namespace:'mock'}));b.onResolve({filter:/\/(supabase|monitoring)$/},args=>({path:args.path.split('/').at(-1),namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},args=>({loader:'js',contents:args.path==='smtp'?"export async function createSmtpTransport(){return {sendMail:async message=>{globalThis.__operationTest.state.smtpMessages.push(message);return {accepted:message.to};},close(){}};}export function smtpMessage(message,config){return {...message,from:config.fromEmail};}":args.path==='supabase'?"export const supabaseAdmin=()=>globalThis.__operationTest.db;export const mediaBucket=()=> 'cms-media';":"export async function recordOperation(...args){globalThis.__operationTest.state.events.push(args);}"}));}}]});const filename=path.resolve('tests/.operation-tests.cjs'),m=new Module(filename);m.filename=filename;m.paths=Module._nodeModulePaths(path.dirname(filename));m._compile(result.outputFiles[0].text,filename);return m.exports;}
 test('complete backups encrypt application data, copy actual media bytes and verify before restoration',async()=>{
  const backup=await module('app/lib/backups.js'),{id}=await backup.startBackup();assert.equal((await backup.continueBackup(id)).complete,true);const entry=state.tables.cms_backups[0];assert.equal(entry.state,'complete');assert.equal(state.files.get('cms-backups/'+entry.data.databasePath).includes(Buffer.from('Private client')),false);assert.deepEqual(state.files.get('cms-backups/'+entry.data.files[0].target),Buffer.from('Original media bytes'));assert.equal((await backup.inspectBackup(id)).verified,true);state.files.set('cms-media/coretax/photo.webp',Buffer.from('Changed current file'));await backup.restoreBackup(id);assert.equal(state.restored,true);assert.deepEqual(state.files.get('cms-media/coretax/photo.webp'),Buffer.from('Original media bytes'));
 });
@@ -25,4 +26,21 @@ test('email queue retries transient failures, uses provider idempotency keys and
  await queue.processEmailQueue(1,async(url,options)=>{request=options;return {ok:false};},environment);assert.equal(state.tables.cms_jobs[0].state,'pending');assert.equal(request.headers['Idempotency-Key'],'email-job');assert.equal(state.events[0][1],'EMAIL_DELIVERY_FAILED');assert.ok(!JSON.stringify(state.events).includes('Private content'));
  state.jobs=[{...job,attempts:5}];await queue.processEmailQueue(1,async()=>({ok:false}),environment);assert.equal(state.tables.cms_jobs[0].state,'failed');
  state.jobs=[job];await queue.processEmailQueue(1,async()=>({ok:true}),environment);assert.equal(state.tables.cms_jobs[0].state,'sent');
+});
+
+test('SMTP delivers queued messages through the configured sender without also calling Resend', async () => {
+  const queue = await module('app/lib/mail-queue.js');
+  const environment = {SMTP_CONFIG_ENCRYPTION_KEY:'ab'.repeat(32),RESEND_API_KEY:'fallback',ENQUIRY_EMAIL_FROM:'old@example.test'};
+  const encrypted = sealSmtp({fromEmail:'sender@example.test'},environment);
+  state.tables.cms_integrations = [{id:'outbound_smtp',data:{enabled:true,encrypted}}];
+  state.smtpMessages = [];
+  const job = {id:'smtp-job',payload:{to:['client@example.test'],text:'Example'},attempts:1,claim_token:'lease-1'};
+  state.jobs = [job];
+  state.tables.cms_jobs = [{...job,state:'processing'}];
+  let resendCalls = 0;
+  const result = await queue.processEmailQueue(1, async()=>{resendCalls++;return {ok:true};},environment);
+  assert.equal(result.sent,1);
+  assert.equal(state.tables.cms_jobs[0].state,'sent');
+  assert.equal(state.smtpMessages[0].from,'sender@example.test');
+  assert.equal(resendCalls,0);
 });

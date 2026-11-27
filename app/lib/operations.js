@@ -1,3 +1,4 @@
+import {getMailStatus} from './mail-provider';
 import crypto from 'node:crypto';
 import {supabaseAdmin} from './supabase';
 import {getSettings} from './store';
@@ -9,7 +10,7 @@ import {reconcileBookingHolds} from './booking-service';
 import {runPracticeMaintenance} from './practice-maintenance';
 import {storageRequired} from './runtime-store';
 export async function operationStatus(){
- const db=supabaseAdmin(),environment={calendar:calendarEnvironment(),backups:backupEnvironment(),mail:Boolean(process.env.RESEND_API_KEY&&process.env.ENQUIRY_EMAIL_FROM),scheduler:Boolean(process.env.CRON_SECRET)};
+ const db=supabaseAdmin(),environment={calendar:calendarEnvironment(),backups:backupEnvironment(),mail:(await getMailStatus()).configured,scheduler:Boolean(process.env.CRON_SECRET)};
  if(!db)return {ready:false,environment,queue:{pending:0,processing:0,sent:0,failed:0},jobs:[],events:[],backups:[],lastRun:null,message:'Connect Supabase and run the v9 migration to enable operations.'};
  const [counts,events,backups,lastRun,jobs]=await Promise.all([
   Promise.all(['pending','processing','sent','failed'].map(async state=>{const {count,error}=await db.from('cms_jobs').select('id',{count:'exact',head:true}).eq('state',state);if(error)throw storageRequired(error);return [state,count||0];})),

@@ -1,3 +1,4 @@
+import {getMailStatus} from './mail-provider';
 import crypto from 'node:crypto';
 import {supabaseAdmin, getSupabaseStatus} from './supabase';
 import {readEnquiry} from './crm-store';
@@ -67,7 +68,6 @@ export async function clientWorkspace(clientId, portal = false) {
   return {client: portal ? {id: client.id, name: client.name, company: client.company, email: client.email} : client, items: portal ? items.map(publicPracticeItem).filter(Boolean) : items, total: count || 0, truncated: (count || 0) > 500, summary: practiceSummary(portal ? items.map(publicPracticeItem).filter(Boolean) : items), events: portal ? [] : await practiceResult(db.from('cms_practice_events').select('id,actor,action,at,item_id').eq('client_id', clientId).order('at', {ascending: false}).limit(40))};
 }
 export function clientMailPlan(client, id, subject, body, context = {}) {
-  if (!process.env.RESEND_API_KEY || !process.env.ENQUIRY_EMAIL_FROM) throw crmError('Configure email delivery before sending this notification.', 503);
   return {key: id, context: {practiceClientId: client.id, ...context}, message: {from: process.env.ENQUIRY_EMAIL_FROM, to: [client.email], subject, text: body}};
 }
 export async function savePracticeItem(payload, actor) {
@@ -80,6 +80,7 @@ export async function savePracticeItem(payload, actor) {
     value.onboarding = onboardingTemplate(value.service);
     if (value.status === 'sent') {
       const settings = await getSettings();
+      if (payload.notify === true && !(await getMailStatus()).configured) throw crmError('Configure email delivery before sending this notification.', 503);
       if (payload.notify === true) jobs.push(clientMailPlan(client, `quote-${id}-issued`, `Quotation ready | ${settings.siteName || 'JMP'}`, 'A quotation is ready for your review. Sign in to the client portal to read the scope, fee basis and terms.\n\n' + portalUrl(settings)));
     }
   }
@@ -93,6 +94,7 @@ export async function savePracticeItem(payload, actor) {
     }
     if (value.sendEmail) {
       if (value.direction !== 'outbound' || value.channel !== 'email' || !value.clientVisible) throw crmError('Email replies must be client-visible outbound messages.');
+      if (!(await getMailStatus()).configured) throw crmError('Configure email delivery before sending this notification.', 503);
       value.emailJobId = `practice-message-${id}`;
       jobs.push(clientMailPlan(client, value.emailJobId, value.title.replace(/[\r\n]/g, ' '), value.description, {practiceMessageId: id}));
     }

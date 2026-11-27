@@ -1,3 +1,4 @@
+import {getMailStatus} from './mail-provider';
 import {bookingConfig,bookingTeam,candidateSlots,availableSlots,validateBookingPayload,safeBooking,validDate} from './booking.mjs';
 import {enquiryAutomation} from './practice.mjs';
 import {dateKey,crmError} from './crm.mjs';
@@ -27,8 +28,8 @@ export async function getNextAvailableBookingSlots(settings, date, staffId='defa
  }
  return {...(last||await getAvailableBookingSlots(settings,first,staffId)),earliestChecked:true,noNextSlot:true};
 }
-export function bookingMailPlans(row,token,settings,event='confirmed'){
- if(!process.env.RESEND_API_KEY||!process.env.ENQUIRY_EMAIL_FROM)return [];
+export async function bookingMailPlans(row,token,settings,event='confirmed'){
+ if(!(await getMailStatus()).configured)return [];
  const origin=siteOrigin(settings,process.env),manage=origin&&/^[\w-]{43}$/.test(token)?`${origin}/booking/manage#${row.id}.${token}`:'',time=new Date(row.start_at).toLocaleString('en-IN',{timeZone:row.data.timeZone,dateStyle:'full',timeStyle:'short'}),reference='JMP-'+String(row.enquiry_id).padStart(6,'0');
  return [{key:`booking-${row.id}-${event}`,context:{enquiryId:row.enquiry_id,reference},message:{from:process.env.ENQUIRY_EMAIL_FROM,to:[row.data.email],subject:`Consultation ${event} | ${settings.siteName||'JMP'}`,text:`Your consultation is ${event}.\n\nReference: ${reference}\nService: ${row.data.service}\nTime: ${time} (${row.data.timeZone})\n${row.data.location||''}\n\n${manage?'Manage, reschedule or cancel: '+manage:'Keep the management link shown on your booking confirmation.'}\n\nPlease use a suitable agreed channel for any sensitive documents.`}}];
 }
@@ -44,19 +45,19 @@ export async function createBooking(settings,payload,replaces=null){
  if(!previous){const date=dateKey(new Date(payload.start),config.timeZone),availability=await getAvailableBookingSlots(settings,date,config.staffId);if(!availability.slots.some(s=>Date.parse(s.start)===Date.parse(payload.start)))throw crmError('This time is no longer available. Please choose another.',409);}
  const row=previous||await reserveBooking(payload,details,config,replaces);
  await writeCalendarBooking(row,Boolean(row.replaces_id));
- const booking=await confirmBooking(row.id,bookingMailPlans(row,payload.manageToken,settings,row.replaces_id?'rescheduled':'confirmed'));
+ const booking=await confirmBooking(row.id,await bookingMailPlans(row,payload.manageToken,settings,row.replaces_id?'rescheduled':'confirmed'));
  return {booking:safeBooking(booking),manageToken:payload.manageToken,duplicate:false};
 }
 export async function cancelBooking(settings,row,token=''){
  if(row.status==='cancelled')return safeBooking(row);
  if(row.status==='rescheduled')throw crmError('This appointment was rescheduled. Use your newest management link.',409);
  await startBookingCancel(row.id);await removeCalendarBooking(row);await cancelBookingRecord(row.id);
- if(token)await enqueueEmails(bookingMailPlans(row,token,settings,'cancelled'));
+ if(token)await enqueueEmails(await bookingMailPlans(row,token,settings,'cancelled'));
  return safeBooking({...row,status:'cancelled'});
 }
 export async function reconcileBookingHolds(settings={}){
  const {supabaseAdmin}=await import('./supabase');const db=supabaseAdmin();if(!db)return {checked:0};
  const {data,error}=await db.from('cms_bookings').select('*').in('status',['hold','cancelling']).lt('updated_at',new Date(Date.now()-600000).toISOString()).limit(10);if(error)throw error;
- for(const row of data||[]){const event=await findCalendarEvent(row);if(row.status==='cancelling'){if(event)await removeCalendarBooking(row);await cancelBookingRecord(row.id);await enqueueEmails(bookingMailPlans(row,'',settings,'cancelled'));}else if(event&&Date.parse(event.start?.dateTime)===Date.parse(row.start_at))await confirmBooking(row.id,bookingMailPlans(row,'',settings,row.replaces_id?'rescheduled':'confirmed'));else if(!event)await cancelBookingRecord(row.id);}
+ for(const row of data||[]){const event=await findCalendarEvent(row);if(row.status==='cancelling'){if(event)await removeCalendarBooking(row);await cancelBookingRecord(row.id);await enqueueEmails(await bookingMailPlans(row,'',settings,'cancelled'));}else if(event&&Date.parse(event.start?.dateTime)===Date.parse(row.start_at))await confirmBooking(row.id,await bookingMailPlans(row,'',settings,row.replaces_id?'rescheduled':'confirmed'));else if(!event)await cancelBookingRecord(row.id);}
  return {checked:data?.length||0};
 }

@@ -53,6 +53,7 @@ import * as handler50 from './integrations/email/route.js';
 import * as handler51 from './portal/files/route.js';
 import * as handler52 from './portal/session/route.js';
 import * as handler53 from './portal/workspace/route.js';
+import * as handler54 from './admin/smtp/route.js';
 
 export const routes=[
   {path:"/admin/account/password",handlers:handler0},
@@ -109,4 +110,5 @@ export const routes=[
   {path:"/portal/files",handlers:handler51},
   {path:"/portal/session",handlers:handler52},
   {path:"/portal/workspace",handlers:handler53},
+  {path:"/admin/smtp",handlers:handler54},
 ];

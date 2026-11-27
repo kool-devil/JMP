@@ -384,5 +384,14 @@
       "GET"
     ],
     "legacySha256": "225f74a2c9e0a4a1125d140b74ceb41d7478c4b44b8d65380aeba5f74be860a0"
+  },
+  {
+    "path": "/admin/smtp",
+    "file": "admin/smtp/route.js",
+    "methods": [
+      "GET",
+      "PUT",
+      "POST"
+    ]
   }
 ]

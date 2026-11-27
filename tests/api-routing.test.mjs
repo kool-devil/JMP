@@ -10,7 +10,7 @@ import {checkFunctionBudget} from '../scripts/check-function-budget.mjs';
 const context=parts=>({params:Promise.resolve({path:parts})});
 test('every existing public API pattern maps to one preserved module and supported methods',async()=>{
  const manifest=JSON.parse(await fs.readFile(new URL('../scripts/api-routes.json',import.meta.url),'utf8'));
- assert.equal(manifest.length,46);assert.equal(new Set(manifest.map(r=>r.path)).size,46);
+ assert.equal(manifest.length,47);assert.equal(new Set(manifest.map(r=>r.path)).size,47);
  const routes=manifest.map(entry=>({path:entry.path,handlers:Object.fromEntries(entry.methods.map(method=>[method,async(request,{params})=>Response.json({file:entry.file,params:await params,method:request.method})]))})),dispatch=createApiDispatcher(routes);
  for(const entry of manifest){const parts=entry.path.split('/').filter(Boolean).map(v=>v.startsWith(':')?'42':v);for(const method of entry.methods){const response=await dispatch(new Request('https://firm.example/api/'+parts.join('/'),{method}),context(parts));assert.equal(response.status,200);const body=await response.json();assert.equal(body.file,entry.file);assert.equal(body.method,method);if(entry.path.includes(':id'))assert.equal(body.params.id,'42');}}
 });

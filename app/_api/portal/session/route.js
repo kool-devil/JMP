@@ -1,3 +1,4 @@
+import {getMailStatus} from '../../../lib/mail-provider';
 import {after} from 'next/server';
 import {requirePortal, portalLogin, portalActivation, setPortalCookie, requestPortalRecovery} from '../../../lib/portal-auth';
 import {practiceDb, practiceResult} from '../../../lib/practice-store';
@@ -17,7 +18,7 @@ export async function POST(request) {
   if (!limit.allowed) throw Object.assign(crmError('Too many account requests. Please wait before trying again.', 429), {retryAfter: limit.retryAfter});
   if (!(await verifyTurnstile(payload.turnstileToken, request)).ok) throw crmError('Complete the security verification.', 403);
   if (payload.action === 'recovery') {
-   if (!process.env.RESEND_API_KEY || !process.env.ENQUIRY_EMAIL_FROM) throw crmError('Email account recovery is unavailable. Contact the team for a new invitation.', 503);
+   if (!(await getMailStatus()).configured) throw crmError('Email account recovery is unavailable. Contact the team for a new invitation.', 503);
    // Use the same public response for every email, including unknown accounts.
    try { await requestPortalRecovery(payload.email); } catch {}
    after(async () => { try { await processEmailQueue(2); } catch {} });

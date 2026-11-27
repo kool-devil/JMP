@@ -12,6 +12,7 @@ import Icon from '../components/Icon';
 import { isPublicPage, publicationLabel, isEnquiryOverdue } from '../lib/publishing.mjs';
 import SiteHealth from './components/SiteHealth';
 import { DeliverySettings, SiteExtensionsSettings } from './components/SiteExtensionsSettings';
+import SmtpSettings from './components/SmtpSettings';
 import TrafficDashboard from './components/TrafficDashboard';
 import CRMWorkspace from './components/CRMWorkspace';
 import OperationsWorkspace from './components/OperationsWorkspace';
@@ -433,6 +434,7 @@ export default function AdminPage() {
     ['operations','Operations & Booking','⚙','operations:read'],
     ['menus','Navigation','☰', 'menus:write'],
     ['forms','Forms','◫', 'forms:write'],
+    ['smtp','SMTP','✉','smtp:manage'],
     ['appearance','Appearance','◐', 'appearance:write'],
     ['site-health','Website Health','✓', 'pages:read'],
     ['settings','Settings','⚙', 'settings:write'],
@@ -443,7 +445,7 @@ export default function AdminPage() {
     ['help','Help','?', 'help']
   ].filter(([, , , permission]) => permission === 'help' || permission === 'account' || (permission === 'super_admin' ? session.role === 'super_admin' : can(permission)));
 
-  const navIcons = { reviews:'document', practice:'people', followups:'clock',operations:'settings',insights:'chart', 'site-health': 'chart', dashboard: 'home', pages: 'document', blog: 'edit', media: 'image', enquiries: 'mail', menus: 'menu', forms: 'briefcase', appearance: 'palette', settings: 'settings', users: 'people', security: 'shield', account: 'people', backup: 'refresh', help: 'help' };
+  const navIcons = { reviews:'document', practice:'people', followups:'clock',operations:'settings',insights:'chart', 'site-health': 'chart', dashboard: 'home', pages: 'document', blog: 'edit', media: 'image', enquiries: 'mail', menus: 'menu', forms: 'briefcase', smtp: 'mail', appearance: 'palette', settings: 'settings', users: 'people', security: 'shield', account: 'people', backup: 'refresh', help: 'help' };
   const displayName = session.displayName || session.username || 'Administrator';
   return <main id="main-content" className="admin-shell">
     <div className="admin-top"><div className="admin-brand"><span className="admin-brand-mark">JMP</span><div><strong>CoreTax CMS</strong><span className="admin-version">Website workspace</span></div></div><div className="admin-actions"><span className="admin-account-label"><span>{displayName.slice(0, 1).toUpperCase()}</span>{displayName}</span><a className="admin-btn light" href="/" target="_blank" rel="noreferrer">View website<Icon name="diagonal" size={14}/></a><button type="button" className="admin-btn light" onClick={() => loadAll()} aria-label="Refresh workspace"><Icon name="refresh" size={15}/></button><button className="admin-btn danger" onClick={logout}>Logout</button></div></div>
@@ -507,6 +509,8 @@ export default function AdminPage() {
         {tab === 'menus' && <form onSubmit={saveSettings}><div className="admin-page-head"><div><h2>Navigation</h2><p className="small">Build header dropdowns and footer links visually.</p></div><button className="admin-btn" disabled={saving}>Save Navigation</button></div><div className="admin-card"><MenuBuilder title="Header Menu" items={menus.header || []} allowChildren onChange={(header) => setMenus({ ...menus, header })} /></div><div className="admin-card"><MenuBuilder title="Footer Quick Links" items={menus.footer || []} onChange={(footer) => setMenus({ ...menus, footer })} /></div></form>}
 
         {tab === 'forms' && <form className="admin-card" onSubmit={saveSettings}><div className="admin-page-head"><div><h2>Contact Form</h2><p className="small">Control the options and messages shown in your website enquiry form.</p></div><button className="admin-btn" disabled={saving}>Save Form Settings</button></div><div className="admin-grid"><Field label="Form Heading" value={settings.formHeading || 'Send an Enquiry'} onChange={(v) => setSettings({ ...settings, formHeading: v })} /><Field label="Success Message" value={settings.formSuccessMessage || 'Thanks — your enquiry has been received.'} onChange={(v) => setSettings({ ...settings, formSuccessMessage: v })} /><Field label="Enquiry Retention (Days)" type="number" value={settings.enquiryRetentionDays || 365} onChange={(v) => setSettings({ ...settings, enquiryRetentionDays: Number(v) || 365 })} help="Scheduled maintenance removes expired enquiries, including when the site is quiet. Minimum 30 days." /></div><div className="field"><label>Service Dropdown Options</label><textarea value={(settings.formServices || []).join('\n')} onChange={(e) => setSettings({ ...settings, formServices: e.target.value.split('\n').map((v) => v.trim()).filter(Boolean) })}></textarea><p className="small field-help">One service per line. These options appear in the public contact form.</p></div><DeliverySettings settings={settings} setSettings={setSettings} storage={storage} Field={Field}/></form>}
+
+        {tab === 'smtp' && can('smtp:manage') && <SmtpSettings api={api} Field={Field} onSaved={mail=>setStorage(current=>({...current,mail}))}/>}
 
         {tab === 'appearance' && <form className="admin-card" onSubmit={saveSettings}>
           <div className="admin-page-head"><div><h2>Appearance</h2><p className="small">Customize branding, colors, browser icon and site-wide CSS.</p></div><button className="admin-btn" disabled={saving}>Save Appearance</button></div>
